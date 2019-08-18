@@ -173,6 +173,27 @@ def test_summary(results, names):
     return normalized_anomaly_distances, aucs
 
 
+def show_worst_test_images(title, worst_test_info, case_no):
+    fig, all_axes = plt.subplots(2, 5, figsize=(18, 7))
+    fig.suptitle(title)
+    for j, axes in enumerate(all_axes):
+        for i, ax in enumerate(axes):
+            cur = worst_test_info.loc[worst_test_info.index[i]]
+            if j == 0:
+                img = load_rgb_image(AnomalyMNIST.PATH/f'images/valid/{cur.x}')
+                ax.set_title(f'Failed test/{cur.x}\ndistance={cur.distance:.3f}')
+            else:
+                img = load_rgb_image(AnomalyMNIST.PATH/f'images/train/{cur.train_x}')
+                ax.set_title(f'confused w/ {cur.train_x}')
+            show_np_image(img, ax=ax)
+
+
+def show_all_worst_test_images(results, names, case_no):
+    for result, name in zip(results, names):
+        distance_df, (auc, fpr, tpr), worst_test_info = result[case_no]
+        show_worst_test_images(f'{name} in test case #{case_no}', worst_test_info, case_no)
+
+
 def body_feature_model(model):
     """
     Returns a model that output flattened features directly from CNN body.
