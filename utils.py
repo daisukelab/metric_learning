@@ -8,7 +8,12 @@ from collections import defaultdict
 from dlcliche.data import *
 from dlcliche.math import *
 from util_visualize import *
+import subprocess
 
+
+def delete_saved_models(data_path):
+    print(f'Deleting *.pth under {Path(data_path).absolute()}...')
+    subprocess.Popen(['find', str(Path(data_path).absolute()), '-name', '*.pth', '-delete'])
 
 def body_feature_model(model):
     """
@@ -48,6 +53,22 @@ def get_embeddings(embedding_model, data_loader, label_catcher=None, return_y=Fa
     if return_y:
         return embs, ys
     return embs
+
+
+def visualize_embeddings(learn, title, all_data, size=0.5):
+    valid_ds, valid_dl = prepare_subset_ds_dl(all_data.path/'valid', size=size, tfms=None)
+    embs = get_embeddings(body_feature_model(learn.model), valid_dl)
+    show_2D_tSNE(embs, [int(y) for y in valid_ds.y], title=title, labels=valid_ds.y.classes)
+
+
+def barplot_paired_charts(df_a, df_b, name_a, name_b, figsize=(14, 10), rot=30):
+    a = df_a.copy()
+    b = df_b.copy()
+    a.columns = [org+'\n'+name_a for org in a.columns]
+    b.columns = [org+'\n'+name_b for org in b.columns]
+    la = [pd.DataFrame(a[col]) for col in a.columns]
+    lb = [pd.DataFrame(b[col]) for col in b.columns]
+    pd.concat([pd.concat([_a, _b], axis=1) for _a, _b in zip(la, lb)], axis=1).boxplot(figsize=figsize, rot=rot)
 
 
 def prepare_full_MNIST_databunch(data_path=Path('data_MNIST'), tfms=get_transforms(do_flip=False)):
@@ -195,9 +216,12 @@ class ToyAnomalyDetection:
         self.store_results(name, result)
         return result
     
-    def do_tests(self, name, learner_fn):
+    def do_tests(self, name, learner_fn, delete_models=False):
         for case_no in range(self.n_cases):
+            print(f'\nTesting {name} for case #{case_no}')
             self.test(name, learner_fn, case_no)
+        if delete_models:
+            delete_saved_models(self.path)
 
     def test_summary(self, results=None, names=None):
         if results is None:
@@ -219,12 +243,16 @@ class ToyAnomalyDetection:
         # distance metric
         distance_norms = pd.DataFrame(normal_dists).mean()
         normalized_anomaly_distances = pd.DataFrame(anomaly_dists)/distance_norms
+        normalized_normal_distances = pd.DataFrame(normal_dists)/distance_norms
 
-        print('# Stat: normalized anomaly distance')
-        display(normalized_anomaly_distances.describe())
+        print('# Stat: AUC')
+        aucs.boxplot(figsize=(10, 6))
+        plt.show()
 
-        print('# Stat: auc')
-        display(aucs.describe())
+        print('# Stat: Normalized distances')
+        barplot_paired_charts(normalized_anomaly_distances,
+                              normalized_normal_distances, 'Anomaly', 'Normal')
+        plt.show()
 
         # case detail
         for case_no in range(self.n_cases):
@@ -236,8 +264,9 @@ class ToyAnomalyDetection:
             display(case_df / distance_norms)
 
         self.normalized_anomaly_distances, self.aucs = normalized_anomaly_distances, aucs
-        return normalized_anomaly_distances, aucs
-    
+        self.normalized_normal_distances = normalized_normal_distances
+        return normalized_anomaly_distances, normalized_normal_distances, aucs
+
     def save_results(self, to_folder):
         ensure_folder(to_folder)
         self.normalized_anomaly_distances.to_csv(f'{str(to_folder)}/norm-ano-dist_anomaly={self.n_anomaly_labels}'
