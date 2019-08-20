@@ -68,7 +68,8 @@ def barplot_paired_charts(df_a, df_b, name_a, name_b, figsize=(14, 10), rot=30):
     b.columns = [org+'\n'+name_b for org in b.columns]
     la = [pd.DataFrame(a[col]) for col in a.columns]
     lb = [pd.DataFrame(b[col]) for col in b.columns]
-    pd.concat([pd.concat([_a, _b], axis=1) for _a, _b in zip(la, lb)], axis=1).boxplot(figsize=figsize, rot=rot)
+    return (pd.concat([pd.concat([_a, _b], axis=1) for _a, _b in zip(la, lb)], axis=1)
+            .boxplot(figsize=figsize, rot=rot))
 
 
 def prepare_full_MNIST_databunch(data_path=Path('data_MNIST'), tfms=get_transforms(do_flip=False)):
@@ -223,7 +224,7 @@ class ToyAnomalyDetection:
         if delete_models:
             delete_saved_models(self.path)
 
-    def test_summary(self, results=None, names=None):
+    def test_summary(self, results=None, names=None, auc_range=[0.4, 0.9], dist_range=list(range(10))):
         if results is None:
             names = self.results.keys()
             results = self.results.values()
@@ -246,12 +247,15 @@ class ToyAnomalyDetection:
         normalized_normal_distances = pd.DataFrame(normal_dists)/distance_norms
 
         print('# Stat: AUC')
-        aucs.boxplot(figsize=(10, 6))
+        ax = aucs.boxplot(figsize=(5, 4), rot=30)
+        if auc_range is not None: ax.set_ylim(*auc_range)
         plt.show()
 
         print('# Stat: Normalized distances')
-        barplot_paired_charts(normalized_anomaly_distances,
-                              normalized_normal_distances, 'Anomaly', 'Normal')
+        ax = barplot_paired_charts(normalized_anomaly_distances,
+                                   normalized_normal_distances, 'Anomaly', 'Normal',
+                                   figsize=(10, 5))
+        if dist_range is not None: ax.set_yticks(dist_range)
         plt.show()
 
         # case detail
