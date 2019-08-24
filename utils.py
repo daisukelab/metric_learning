@@ -15,6 +15,7 @@ def delete_saved_models(data_path):
     print(f'Deleting *.pth under {Path(data_path).absolute()}...')
     subprocess.Popen(['find', str(Path(data_path).absolute()), '-name', '*.pth', '-delete'])
 
+
 def body_feature_model(model):
     """
     Returns a model that output flattened features directly from CNN body.
@@ -72,16 +73,49 @@ def barplot_paired_charts(df_a, df_b, name_a, name_b, figsize=(14, 10), rot=30):
             .boxplot(figsize=figsize, rot=rot))
 
 
+def set_fastai_random_seed(seed=42):
+    # https://docs.fast.ai/dev/test.html#getting-reproducible-results
+
+    # python RNG
+    random.seed(seed)
+
+    # pytorch RNGs
+    import torch
+    torch.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    if torch.cuda.is_available(): torch.cuda.manual_seed_all(seed)
+
+    # numpy RNG
+    import numpy as np
+    np.random.seed(seed)
+
+
 def prepare_full_MNIST_databunch(data_path=Path('data_MNIST'), tfms=get_transforms(do_flip=False)):
     """Creates MNIST full set databunch."""
     restructured_path = prepare_full_MNIST(data_path)
-    return ImageDataBunch.from_folder(restructured_path, ds_tfms=tfms)
+    return ImageDataBunch.from_folder(restructured_path, valid_pct=None, ds_tfms=tfms)
 
 
 def prepare_CIFAR10_databunch(data_path=Path('data_CIFAR10'), tfms=get_transforms(do_flip=False)):
     """Creates CIFAR10 full set databunch."""
     restructured_path = prepare_CIFAR10(data_path)
-    return ImageDataBunch.from_folder(restructured_path, ds_tfms=tfms)
+    return ImageDataBunch.from_folder(restructured_path, valid_pct=None, ds_tfms=tfms)
+
+
+def prepare_subsampled_databunch(data_path, size=120, valid_pct=0.2, tfms=None, random_seed=42):
+    if random_seed is not None: set_fastai_random_seed(seed=random_seed)
+    files  = [Path(f) for f in subsample_files_in_tree(data_path/'train', '*.png', size=size)]
+    files += [Path(f) for f in subsample_files_in_tree(data_path/'valid', '*.png', size=size)]
+    labels = [Path(f).parent.name for f in files]
+    return ImageDataBunch.from_lists(data_path, files, labels, valid_pct=valid_pct, ds_tfms=tfms)
+
+
+def prepare_CIFAR10_train_subsampled_databunch(size=120, valid_pct=0.2, random_seed=42):
+    """Creates CIFAR10 sub-sampled training databunch."""
+    restructured_path = prepare_CIFAR10(data_path=Path('data_CIFAR10'))
+    tfms=get_transforms(do_flip=False)
+    return prepare_subsampled_databunch(restructured_path, size=size, valid_pct=valid_pct,
+                                        tfms=tfms, random_seed=random_seed)
 
 
 def prepare_subset_ds_dl(data_path, size=0.1, tfms=None):
@@ -100,21 +134,25 @@ class ToyAnomalyDetection:
     "Toy Anomaly detection problem class"
 
     def __init__(self, base_databunch, n_anomaly_labels=1, n_cases=10, distance='cosine',
-                 n_worsts=5, test_size=0.5):
+                 n_worsts=5, subsample_size=1, test_size=0.5, pred_fn=np.min):
         """
         Prerequisite:
             Create base databunch object in advance. Call prepare_full_MNIST_databunch()
-            for example. (DATA ROOT)/images/train and valid folders will be used as data source.
+            for example. (DATA ROOT)/images and valid folders will be used as data source.
 
         Args:
             base_databunch: Databunch fast.ai class object that holds whole dataset.
             n_anomaly_labels: Number of anomaly labels
             n_cases: Number of test cases; 1 to c
             distance: 'cosine' or 'euclidean'
+            n_worsts: Number of samples to show worst cases.
+            subsample_size: (0, 1) or 1 or integer to set size of subsampling train/valid sets.
+            test_size: (0, 1) or 1 or integer to set size of subsampling test set.
+            pred_fn: Function to predict distance; np.min() by default.
         """
-        self.base_data, self.n_anomaly_labels = base_databunch, n_anomaly_labels
-        self.n_cases, self.distance, self.n_worsts, self.test_size = n_cases, distance, n_worsts, test_size
-        self.create_test_data()
+        self.base_data, self.n_anomaly_labels, self.n_cases = base_databunch, n_anomaly_labels, n_cases
+        self.distance, self.n_worsts, self.test_size, self.pred_fn = distance, n_worsts, test_size, pred_fn
+        self.create_test_data(size=subsample_size)
         self.results = defaultdict(list)
 
     @property
@@ -134,7 +172,7 @@ class ToyAnomalyDetection:
     def all_classes(self):
         return list(range(self.c))
 
-    def create_test_data(self):
+    def create_test_data(self, size=1):
         """
         Creates test case folders for unknown anomaly class detection problem.
         Each test cases removes `n_anomaly_labels` classes from training set,
@@ -153,11 +191,10 @@ class ToyAnomalyDetection:
             for ci in range(self.c):
                 if ci in self.anomaly_classes(case_no): continue
                 label = self.classes[ci]
-                copy_any((data_path/f'train/{label}').absolute(), case_folder/f'train', symlinks=False)
-                copy_any((data_path/f'valid/{label}').absolute(), case_folder/f'valid', symlinks=False)
-                # Unfortunately symlink doesn't work for fast.ai library, fails in reading list linked data...
-                # symlink_file((images/f'train/{label}').absolute(), case_folder/f'train/{label}')
-                # symlink_file((images/f'valid/{label}').absolute(), case_folder/f'valid/{label}')
+                copy_subsampled_files(root=data_path/f'train/{label}', dest=case_folder/f'train/{label}',
+                                      wildcard='[A-Za-z0-9_]*.*', size=size)
+                copy_subsampled_files(root=data_path/f'valid/{label}', dest=case_folder/f'valid/{label}',
+                                      wildcard='[A-Za-z0-9_]*.*', size=size)
 
     def databunch(self, case_no, tfms=get_transforms(do_flip=False)):
         """Creates test case ImageDataBunch."""
@@ -186,7 +223,7 @@ class ToyAnomalyDetection:
         test_anomaly_mask = [y in  false_ys for y in test_y]
         test_anomaly_idx = np.where(test_anomaly_mask)[0]
         y_true = np.array(list(map(int, test_anomaly_mask)))
-        preds = np.min(distances, axis=1)
+        preds = self.pred_fn(distances, axis=1)
 
         # 1. worst case
         preds_y1 = preds[test_anomaly_mask]
