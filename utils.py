@@ -2,13 +2,15 @@ from fastai.vision import *
 from torchvision import datasets, transforms
 from torch import nn
 import PIL
+import subprocess
 from tqdm import tqdm
 from sklearn import metrics
 from collections import defaultdict
 from dlcliche.data import *
 from dlcliche.math import *
+from dlcliche.fastai import *
 from util_visualize import *
-import subprocess
+from anomaly_twin_imagelist import *
 
 
 def delete_saved_models(data_path):
@@ -56,10 +58,15 @@ def get_embeddings(embedding_model, data_loader, label_catcher=None, return_y=Fa
     return embs
 
 
-def visualize_embeddings(learn, title, all_data, size=0.5):
+def visualize_embeddings(title, embeddings, ys, classes):
+    return show_2D_tSNE(many_dim_vector=embeddings, target=[int(y) for y in ys], title=title, labels=classes)
+
+
+def visualize_learner_embeddings(learn, title, all_data, size=0.5):
     valid_ds, valid_dl = prepare_subset_ds_dl(all_data.path/'valid', size=size, tfms=None)
     embs = get_embeddings(body_feature_model(learn.model), valid_dl)
-    show_2D_tSNE(embs, [int(y) for y in valid_ds.y], title=title, labels=valid_ds.y.classes)
+    return visualize_embeddings(title=title, embeddings=embs, ys=[int(y) for y in valid_ds.y],
+                                labels=valid_ds.y.classes)
 
 
 def barplot_paired_charts(df_a, df_b, name_a, name_b, figsize=(14, 10), rot=30):
@@ -118,12 +125,12 @@ def prepare_CIFAR10_train_subsampled_databunch(size=120, valid_pct=0.2, random_s
                                         tfms=tfms, random_seed=random_seed)
 
 
-def prepare_subset_ds_dl(data_path, size=0.1, tfms=None):
+def prepare_subset_ds_dl(data_path, size=0.1, tfms=None, img_size=None):
     # Sub-sample files
     files = [Path(f) for f in subsample_files_in_tree(data_path, '*.png', size=size)]
     labels = [Path(f).parent.name for f in files]
     # Once create data bunch
-    tmp_data = ImageDataBunch.from_lists(data_path, files, labels, valid_pct=0, ds_tfms=tfms)
+    tmp_data = ImageDataBunch.from_lists(data_path, files, labels, valid_pct=0, ds_tfms=tfms, size=img_size)
     # Create dataloader again so that it surely set `shuffle=False`
     dl = torch.utils.data.DataLoader(tmp_data.train_ds, batch_size=tmp_data.batch_size, shuffle=False)
     dl = DeviceDataLoader(dl, tmp_data.device)
