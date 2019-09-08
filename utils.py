@@ -10,7 +10,6 @@ from dlcliche.data import *
 from dlcliche.math import *
 from dlcliche.fastai import *
 from util_visualize import *
-from anomaly_twin_imagelist import *
 
 
 def delete_saved_models(data_path):
