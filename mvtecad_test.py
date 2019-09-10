@@ -3,6 +3,103 @@ from anomaly_twin_imagelist import *
 from metric_nets import *
 
 
+def subcase_MVTecAD(testcases, subs, case_no, sub_no):
+    return f'case{case_no}-{sub_no}-{testcases[case_no]}-{subs[case_no][sub_no]}'
+
+def clean_all_subcase_MVTecAD(path):
+    """Clean up all test data files/folders."""
+    for d in path.glob('case*'):
+        if not d.is_dir(): continue
+        ensure_delete(d)
+
+def create_subtests_MVTecAD(path, subtest_type, testcases, skip_data_creation=False):
+    """
+    Creates sub test case folders.
+    """
+    # TEST TYPE 1: Use artificially generated samples (from train samples) as anomaly class.
+    # TEST TYPE 2: Use one of test anomaly class to train with good, test others.
+    if subtest_type == 'artificial' or subtest_type == 'out_of_folds':
+        # Make all test combinations
+        subs = []
+        for tc in testcases:
+            cur = sorted([d.name for d in (path/f'original/{tc}/test').glob('[A-Za-z0-9]*')
+                          if d.name != 'good'])
+            subs.append(cur)
+        # Build test folders
+        if not skip_data_creation:
+            for case_no in range(len(testcases)):
+                for sub_no in range(len(subs[case_no])):
+                    case = testcases[case_no]
+                    sub = subs[case_no][sub_no]
+                    subcase = subcase_MVTecAD(testcases, subs, case_no, sub_no)
+                    case_folder = path/subcase
+                    # Prepare folders
+                    ensure_delete(case_folder)
+                    ensure_folder(case_folder)
+                    ensure_folder(case_folder/'train')
+                    ensure_folder(case_folder/'test')
+                    # Copy samples
+                    copy_any(path/f'original/{case}/train/good', case_folder/'train')
+                    copy_any(path/f'original/{case}/test/{sub}', case_folder/'train')
+                    copy_any(path/f'original/{case}/test/good', case_folder/'test')
+                    for test_sub in subs[case_no]:
+                        copy_any(path/f'original/{case}/test/{test_sub}', case_folder/'test')
+                    print(f'# Test: {subcase}')
+                    print([d.parent.name+'/'+d.name for d in (case_folder/'train').glob('*')])
+                    print([d.parent.name+'/'+d.name for d in (case_folder/'test').glob('*')])
+                    print()
+    # TEST TYPE 3: Use some test cases' good class to train.
+    elif subtest_type == 'simple_mix':
+        testcases = ['simple_mix']
+        subs = []
+        assert False, 'IMPLEMENT ME'
+    # UNKNOWN TYPE
+    else:
+        raise Exception(f'Unknown test type: {subtest_type}')
+
+    return testcases, subs
+
+def databunch_MVTeczAD(path, subtest_type, testcases, subs, case_no, train_valid_pct, img_size, tfms=None):
+    """
+    Creates sub test case databunch.
+    """
+    subcase = subcase_MVTecAD(testcases, subs, case_no, 0) # TODO: Implement for sub_no in the future...
+
+    if tfms is None:
+        # Transforms:
+        # - No reflection in crop_pad, harmful for textures.
+        # - No flip
+        tfms_trn, tfms_val = get_transforms(do_flip=False)
+        tfms = (tfms_trn[:-1].append(crop_pad(padding_mode='zeros')), tfms_val)
+
+    # TEST TYPE 1: Use artificially generated samples (from train samples) as anomaly class.
+    if subtest_type == 'artificial':
+        data = AnomalyTwinImageList.databunch(path/f'{subcase}/train/good', tfms=tfms)
+    # TEST TYPE 2: Use one of test anomaly class to train with good, test others.
+    elif subtest_type == 'out_of_folds':
+        # Create sample list.
+        files  = [Path(f) for f in (path/f'{subcase}/train').glob('**/[A-Za-z0-9]*.png')]
+        labels = [Path(f).parent.name for f in files]
+        assert len(files) > 0, f"{path/f'{subcase}/train'} has no images."
+        # Balance samples between classes.
+        balanced_files, balanced_labels = balance_class_by_over_sampling(files, labels)
+        # Then databunch from the balanced training samples.
+        data = ImageDataBunch.from_lists(path/subcase, balanced_files, balanced_labels,
+                                         valid_pct=train_valid_pct,
+                                         test='test', ds_tfms=tfms, size=img_size)
+    # TEST TYPE 3: Use some test cases' good class to train.
+    elif subtest_type == 'simple_mix':
+        assert False, 'IMPLEMENT ME'
+    # UNKNOWN TYPE
+    else:
+        raise Exception(f'Unknown test type: {subtest_type}')
+    return data
+
+from utils import *
+from anomaly_twin_imagelist import *
+from metric_nets import *
+
+
 class MVTecADTest:
     "Anomaly detection test class using MVTec AD dataset"
 
@@ -30,21 +127,8 @@ class MVTecADTest:
     @property
     def n_cases(self): return len(self.testcases)
 
-    def n_subs(self, case_no): return len(self.subs[case_no])
-
-    def case(self, case_no): return self.testcases[case_no]
-
-    def sub(self, case_no, sub_no):
-        return self.subs[case_no][sub_no]
-
-    def sub_tests(self, case_no, sub_no):
-        return [sub for sub in self.subs[case_no] if sub != self.sub(case_no, sub_no)]
-
-    def subcase(self, case_no, sub_no):
-        return f'case{case_no}-{sub_no}-{self.testcases[case_no]}-{self.sub(case_no, sub_no)}'
-
     def case_folder(self, case_no, sub_no):
-        return self.path/self.subcase(case_no, sub_no)
+        return self.path/subcase_MVTecAD(self.testcases, self.subs, case_no, sub_no)
 
     def set_test(self, case_no, sub_no):
         self.cur_test = [case_no, sub_no]
@@ -56,83 +140,15 @@ class MVTecADTest:
 
     def databunch(self):
         if self.no_test_set_yet(): return None
-
-        # Transforms:
-        # - No reflection in crop_pad, harmful for textures.
-        # - No flip
-        tfms_trn, tfms_val = get_transforms(do_flip=False)
-        tfms = (tfms_trn[:-1].append(crop_pad(padding_mode='zeros')), tfms_val)
-
-        # TEST TYPE 1: Use artificially generated samples (from train samples) as anomaly class.
-        if self.test_type == 'artificial':
-            data = AnomalyTwinImageList.databunch(self.test_path/'train/good', tfms=tfms)
-            return data
-        # TEST TYPE 2: Use one of test anomaly class to train with good, test others.
-        elif self.test_type == 'out_of_folds':
-            # Create sample list.
-            files  = [Path(f) for f in (self.test_path/'train').glob('**/[A-Za-z0-9]*.png')]
-            labels = [Path(f).parent.name for f in files]
-            # Balance samples between classes.
-            balanced_files, balanced_labels = balance_class_by_over_sampling(files, labels)
-            # Then databunch from the balanced training samples.
-            return ImageDataBunch.from_lists(self.test_path, balanced_files, balanced_labels,
-                                             valid_pct=self.train_valid_pct,
-                                             test='test', ds_tfms=tfms, size=self.img_size)
-        # TEST TYPE 3: Use some test cases' good class to train.
-        elif self.test_type == 'simple_mix':
-            self.testcases = ['simple_mix']
-            self.subs = [['simple_mix']]
-            assert False, 'IMPLEMENT ME'
-        # UNKNOWN TYPE
-        else:
-            raise Exception(f'Unknown test type: {self.test_type}')
+        return databunch_MVTeczAD(self.path, subtest_type=self.test_type, testcases=self.testcases,
+                                  subs=self.subs, case_no=self.cur_test[0],
+                                  train_valid_pct=self.train_valid_pct, img_size=self.img_size)
 
     def create_test_data(self, skip_data_creation=False):
-        """
-        Creates test case folders for unknown anomaly class detection problem.
-        Each test cases removes `n_anomaly_labels` classes from training set,
-        and model will detect removed class as anomaly class.
-        """
-        # TEST TYPE 1: Use artificially generated samples (from train samples) as anomaly class.
-        # TEST TYPE 2: Use one of test anomaly class to train with good, test others.
-        if self.test_type == 'artificial' or self.test_type == 'out_of_folds':
-            # Make all test combinations
-            self.subs = []
-            for tc in self.testcases:
-                subs = [d.name for d in (self.path/f'original/{tc}/test').glob('[A-Za-z0-9]*')
-                            if d.name != 'good']
-                self.subs.append(subs)
-            if skip_data_creation:
-                return
-            # Build test folders
-            for case_no in range(self.n_cases):
-                for sub_no in range(self.n_subs(case_no)):
-                    case = self.case(case_no)
-                    sub = self.sub(case_no, sub_no)
-                    case_folder = self.case_folder(case_no, sub_no)
-                    # Prepare folders
-                    ensure_delete(case_folder)
-                    ensure_folder(case_folder)
-                    ensure_folder(case_folder/'train')
-                    ensure_folder(case_folder/'test')
-                    # Copy samples
-                    copy_any(self.path/f'original/{case}/train/good', case_folder/'train')
-                    copy_any(self.path/f'original/{case}/test/{sub}', case_folder/'train')
-                    copy_any(self.path/f'original/{case}/test/good', case_folder/'test')
-                    for test_sub in self.subs[case_no]: # self.sub_tests(case_no, sub_no):
-                        copy_any(self.path/f'original/{case}/test/{test_sub}', case_folder/'test')
-                    print(f'# Test: {self.subcase(case_no, sub_no)}')
-                    print([d.parent.name+'/'+d.name for d in (case_folder/'train').glob('*')])
-                    print([d.parent.name+'/'+d.name for d in (case_folder/'test').glob('*')])
-                    print()
-        # TEST TYPE 3: Use some test cases' good class to train.
-        elif self.test_type == 'simple_mix':
-            self.testcases = ['simple_mix']
-            self.subs = []
-            assert False, 'IMPLEMENT ME'
-        # UNKNOWN TYPE
-        else:
-            raise Exception(f'Unknown test type: {self.test_type}')
+        self.testcases, self.subs = create_subtests_MVTecAD(self.path,
+                                                            subtest_type=self.test_type,
+                                                            testcases=self.testcases,
+                                                            skip_data_creation=skip_data_creation)
 
     def test_title(self):
         if self.no_test_set_yet(): return '(no test)'
@@ -146,23 +162,17 @@ class MVTecADTest:
         else:
             raise Exception(f'Unknown test type: {self.test_type}')
 
-    def clean_all_test_data(self):
-        """Clean up all test data files/folders."""
-        for d in self.path.glob('case*'):
-            if not d.is_dir(): continue
-            ensure_delete(d)
-
     def eval_ds_dl(self, sub_folder):
         return prepare_subset_ds_dl(self.test_path/sub_folder, size=self.test_size,
                                     tfms=None, img_size=self.img_size)
 
     def store_results(self, name, result, case_no, sub_no):
         if name not in self.results:
-            self.results[name] = [[None for _ in range(self.n_subs(cn))]
+            self.results[name] = [[None for _ in range(len(self.subs[case_no]))]
                                   for cn in range(self.n_cases)]
         self.results[name][case_no][sub_no] = result
 
-    def test(self, name, learner_fn, visualize_now=True, vis_class=0):
+    def test(self, name, learner_fn, visualize_now=True, vis_class=-1):
         # Train learner
         anomaly_data = self.databunch()
         learn = learner_fn(anomaly_data)
@@ -223,7 +233,10 @@ class MVTecADTest:
             # Embeddings
             visualize_embeddings(title='Class embeddings distribution', embeddings=test_embs,
                                  ys=test_y, classes=eval_test_ds.y.classes)
+            plt.show()
             # Best/Worst cases per class
+            if vis_class == -1:
+                vis_class = 1 if eval_test_ds.classes[0] == 'good' else 0
             for cls in range(eval_test_ds.c):
                 if vis_class is not None: # None = all
                     if eval_test_ds.classes[cls] == 'good': continue
@@ -240,15 +253,18 @@ class MVTecADTest:
                     worst_test_info, best_test_info = best_test_info, worst_test_info
 
                 self.show_test_matching_images('Best: ' + eval_test_ds.classes[cls], learn, best_test_info)
+                plt.show()
                 self.show_test_matching_images('Worst: ' + eval_test_ds.classes[cls], learn, worst_test_info)
+                plt.show()
         
         return result
 
-    def do_tests(self, name, learner_fn, delete_models=False):
+    def do_tests(self, name, learner_fn, visualize=[0], delete_models=False):
         for case_no in range(self.n_cases):
+            visualize_now = (visualize == 'all') or (case_no in visualize)
             print(f'\nTesting {name} for case #{case_no}')
             self.set_test(case_no, 0)
-            self.test(name, learner_fn)
+            self.test(name, learner_fn, visualize_now=visualize_now)
         if delete_models:
             delete_saved_models(self.path)
 
@@ -264,10 +280,10 @@ class MVTecADTest:
                                          x=pil2tensor(load_rgb_image(data_path/f'test/{cur.x}')/255,
                                                       np.float32).cuda(), y=0)
                 else:
-                    show_np_image(load_rgb_image(data_path/f'train/good/{cur.train_x}'), ax=ax)
+                    show_np_image(load_rgb_image(learn.data.train_ds.path/cur.train_x), ax=ax)
                     ax.set_title(f'from good {cur.train_x}')
 
-    def test_summary(self, results=None, names=None, auc_range=None, dist_range=None):
+    def test_summary(self, results=None, names=None, auc_range=[0.2,1.0], dist_range=None):
         if results is None:
             names = self.results.keys()
             results = list(self.results.values())
@@ -282,6 +298,7 @@ class MVTecADTest:
                 normal_dists[name].extend(distance_df[distance_df.index == 'good'].values[:, 0])
                 # collect auc
                 aucs.loc[case_no, name] = auc
+        aucs.index = self.testcases
         # distance metric
         distance_norms = pd.DataFrame(normal_dists).mean()
         normalized_anomaly_distances = pd.DataFrame(anomaly_dists)/distance_norms
@@ -292,11 +309,14 @@ class MVTecADTest:
         if auc_range is not None: ax.set_ylim(*auc_range)
         plt.show()
 
+        display(df_apply_sns_color_map(aucs, reverse=True))
+        plt.show()
+
         print('# Stat: Normalized distances')
         ax = barplot_paired_charts(normalized_anomaly_distances,
                                    normalized_normal_distances, 'Anomaly', 'Normal',
                                    figsize=(10, 5))
-        if dist_range is not None: ax.set_yticks(dist_range)
+        if dist_range is not None: ax.set_ylim(dist_range)
         plt.show()
 
         self.normalized_anomaly_distances, self.aucs = normalized_anomaly_distances, aucs
