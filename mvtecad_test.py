@@ -16,6 +16,21 @@ def create_subtests_MVTecAD(path, subtest_type, testcases, skip_data_creation=Fa
     """
     Creates sub test case folders.
     """
+    def _make_case_folder(case_no, sub_no):
+        subcase = subcase_MVTecAD(testcases, subs, case_no, sub_no)
+        case_folder = path/subcase
+        # Prepare folders
+        ensure_delete(case_folder)
+        ensure_folder(case_folder)
+        ensure_folder(case_folder/'train')
+        ensure_folder(case_folder/'test')
+        return subcase, case_folder
+    def _print_content(subcase, case_folder):
+        print(f'# Test: {subcase}')
+        print([d.parent.name+'/'+d.name for d in (case_folder/'train').glob('*')])
+        print([d.parent.name+'/'+d.name for d in (case_folder/'test').glob('*')])
+        print()
+
     # TEST TYPE 1: Use artificially generated samples (from train samples) as anomaly class.
     # TEST TYPE 2: Use one of test anomaly class to train with good, test others.
     if subtest_type == 'artificial' or subtest_type == 'out_of_folds':
@@ -31,28 +46,25 @@ def create_subtests_MVTecAD(path, subtest_type, testcases, skip_data_creation=Fa
                 for sub_no in range(len(subs[case_no])):
                     case = testcases[case_no]
                     sub = subs[case_no][sub_no]
-                    subcase = subcase_MVTecAD(testcases, subs, case_no, sub_no)
-                    case_folder = path/subcase
-                    # Prepare folders
-                    ensure_delete(case_folder)
-                    ensure_folder(case_folder)
-                    ensure_folder(case_folder/'train')
-                    ensure_folder(case_folder/'test')
+                    subcase, case_folder = _make_case_folder(case_no, sub_no)
                     # Copy samples
                     copy_any(path/f'original/{case}/train/good', case_folder/'train')
                     copy_any(path/f'original/{case}/test/{sub}', case_folder/'train')
                     copy_any(path/f'original/{case}/test/good', case_folder/'test')
                     for test_sub in subs[case_no]:
                         copy_any(path/f'original/{case}/test/{test_sub}', case_folder/'test')
-                    print(f'# Test: {subcase}')
-                    print([d.parent.name+'/'+d.name for d in (case_folder/'train').glob('*')])
-                    print([d.parent.name+'/'+d.name for d in (case_folder/'test').glob('*')])
-                    print()
+                    _print_content(subcase, case_folder)
     # TEST TYPE 3: Use some test cases' good class to train.
     elif subtest_type == 'simple_mix':
-        testcases = ['simple_mix']
-        subs = []
-        assert False, 'IMPLEMENT ME'
+        testcases = ['capsule', 'carpet', 'leather', 'cable']
+        subs = [['simple_mix'], ['simple_mix'], ['simple_mix'], ['simple_mix']]
+        for case_no in range(len(testcases)):
+            subcase, case_folder = _make_case_folder(case_no=case_no, sub_no=0)
+            for case in testcases:
+                copy_any(path/f'original/{case}/train/good', case_folder/f'train/{case}')
+            sub = testcases[case_no]
+            copy_any(path/f'original/{sub}/test', case_folder/f'test/{sub}')
+            _print_content(subcase, case_folder)
     # UNKNOWN TYPE
     else:
         raise Exception(f'Unknown test type: {subtest_type}')
@@ -76,7 +88,8 @@ def databunch_MVTeczAD(path, subtest_type, testcases, subs, case_no, train_valid
     if subtest_type == 'artificial':
         data = AnomalyTwinImageList.databunch(path/f'{subcase}/train/good', tfms=tfms)
     # TEST TYPE 2: Use one of test anomaly class to train with good, test others.
-    elif subtest_type == 'out_of_folds':
+    # TEST TYPE 3: Use some test cases' good class to train.
+    elif subtest_type == 'out_of_folds' or subtest_type == 'simple_mix':
         # Create sample list.
         files  = [Path(f) for f in (path/f'{subcase}/train').glob('**/[A-Za-z0-9]*.png')]
         labels = [Path(f).parent.name for f in files]
@@ -87,9 +100,6 @@ def databunch_MVTeczAD(path, subtest_type, testcases, subs, case_no, train_valid
         data = ImageDataBunch.from_lists(path/subcase, balanced_files, balanced_labels,
                                          valid_pct=train_valid_pct,
                                          test='test', ds_tfms=tfms, size=img_size)
-    # TEST TYPE 3: Use some test cases' good class to train.
-    elif subtest_type == 'simple_mix':
-        assert False, 'IMPLEMENT ME'
     # UNKNOWN TYPE
     else:
         raise Exception(f'Unknown test type: {subtest_type}')
