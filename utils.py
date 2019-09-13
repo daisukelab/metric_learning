@@ -124,10 +124,13 @@ def prepare_CIFAR10_train_subsampled_databunch(size=120, valid_pct=0.2, random_s
                                         tfms=tfms, random_seed=random_seed)
 
 
-def prepare_subset_ds_dl(data_path, size=0.1, tfms=None, img_size=None):
+def prepare_subset_ds_dl(data_path, files=None, labels=None, size=0.1,
+                         tfms=None, img_size=None, extension='.png'):
     # Sub-sample files
-    files = [Path(f) for f in subsample_files_in_tree(data_path, '*.png', size=size)]
-    labels = [Path(f).parent.name for f in files]
+    if files is None:
+        files = [Path(f) for f in subsample_files_in_tree(data_path, '*'+extension, size=size)]
+    if labels is None:
+        labels = [Path(f).parent.name for f in files]
     # Once create data bunch
     tmp_data = ImageDataBunch.from_lists(data_path, files, labels, valid_pct=0, ds_tfms=tfms, size=img_size)
     # Create dataloader again so that it surely set `shuffle=False`

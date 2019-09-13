@@ -29,11 +29,14 @@ class AnomalyTwinImageList(ImageList):
         ImageDraw.Draw(image).line((x, y, x2,y2), fill=c, width=w)
         return image
     
-    @staticmethod
-    def databunch(path, size=224, tfms=None, valid_pct=0.2, extension='.png', confirm_samples=0):
+    @classmethod
+    def databunch(cls, path, images=None, size=224,
+                  tfms=None, valid_pct=0.2, extension='.png', confirm_samples=0):
         """
         Arguments:
             path: Root path to the image files.
+            images: Predetermined image path name list,
+                or setting None will search all files that matches extension.
             size: Image size.
             tfms: Transforms to augment images.
             valid_pct: Percentage to assign samples to validation set.
@@ -41,16 +44,22 @@ class AnomalyTwinImageList(ImageList):
             confirm_samples: Number of samples to confirm how samples are assigned.
         """
         path = Path(path)
-        images = [str(f).replace(str(path)+'/', '') for ff in path.glob('**/*'+extension) for f in [ff, ff]]
+        # Make list of images if not there
+        if images is None:
+            images = [str(f).replace(str(path)+'/', '') for f in path.glob('**/*'+extension)]
+        # Double the image list
+        images = [f for ff in images for f in [ff, ff]]
+        # Assign labels, and valid sample index
         N = len(images)//2
         labels = [l for _ in range(N) for l in ['normal', 'anomaly']]
         valid_idx = [i for ii in random.sample(range(N), int(N * valid_pct)) for i in [ii*2, ii*2+1]]
+        # Make databunch
         df = pd.DataFrame({'filename': images, 'label': labels})
         if confirm_samples > 0:
             print('Example of sample assignment:')
             display(df[:confirm_samples])
-        AnomalyTwinImageList.SIZE = size
-        return (AnomalyTwinImageList.from_df(df, path)
+        cls.SIZE = size
+        return (cls.from_df(df, path)
                 .split_by_idx(valid_idx=valid_idx)
                 .label_from_df()
                 .transform(tfms=tfms, size=size)
