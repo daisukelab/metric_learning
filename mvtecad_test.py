@@ -71,7 +71,8 @@ def create_subtests_MVTecAD(path, subtest_type, testcases, skip_data_creation=Fa
 
     return testcases, subs
 
-def databunch_MVTeczAD(path, subtest_type, testcases, subs, case_no, train_valid_pct, img_size, tfms=None):
+def databunch_MVTeczAD(path, subtest_type, testcases, subs, case_no, train_valid_pct, img_size,
+                       artificial_image_list_cls=AnomalyTwinImageList, tfms=None):
     """
     Creates sub test case databunch.
     """
@@ -86,7 +87,8 @@ def databunch_MVTeczAD(path, subtest_type, testcases, subs, case_no, train_valid
 
     # TEST TYPE 1: Use artificially generated samples (from train samples) as anomaly class.
     if subtest_type == 'artificial':
-        data = AnomalyTwinImageList.databunch(path/f'{subcase}/train/good', tfms=tfms)
+        data = artificial_image_list_cls.databunch(path/f'{subcase}/train/good',
+                                                   size=img_size, tfms=tfms)
     # TEST TYPE 2: Use one of test anomaly class to train with good, test others.
     # TEST TYPE 3: Use some test cases' good class to train.
     elif subtest_type == 'out_of_folds' or subtest_type == 'simple_mix':
@@ -114,7 +116,9 @@ class MVTecADTest:
     "Anomaly detection test class using MVTec AD dataset"
 
     def __init__(self, path, test_type='artificial', distance='cosine', n_mosts=5,
-                 train_valid_pct=0.2, test_size=1.0, img_size=224, pred_fn=np.min, skip_data_creation=False):
+                 train_valid_pct=0.2, test_size=1.0, img_size=224, pred_fn=np.min, skip_data_creation=False,
+                 artificial_image_list_cls=AnomalyTwinImageList,
+                 testcases=None):
         """
         Args:
             base_databunch: Databunch fast.ai class object that holds whole dataset.
@@ -127,10 +131,12 @@ class MVTecADTest:
             test_size: (0, 1) or 1 or integer to set size of subsampling test set.
             pred_fn: Function to predict distance; np.min() by default.
         """
-        self.path, self.testcases = prepare_MVTecAD(path)
+        self.path, given_testcases = prepare_MVTecAD(path)
+        self.testcases = given_testcases if testcases is None else testcases
         self.test_type, self.cur_test = test_type, None
         self.distance, self.n_mosts, self.train_valid_pct = distance, n_mosts, train_valid_pct
         self.test_size, self.img_size, self.pred_fn = test_size, img_size, pred_fn
+        self.artificial_image_list_cls = artificial_image_list_cls
         self.results = {}
         self.create_test_data(skip_data_creation)
 
@@ -152,7 +158,8 @@ class MVTecADTest:
         if self.no_test_set_yet(): return None
         return databunch_MVTeczAD(self.path, subtest_type=self.test_type, testcases=self.testcases,
                                   subs=self.subs, case_no=self.cur_test[0],
-                                  train_valid_pct=self.train_valid_pct, img_size=self.img_size)
+                                  train_valid_pct=self.train_valid_pct, img_size=self.img_size,
+                                  artificial_image_list_cls=self.artificial_image_list_cls)
 
     def create_test_data(self, skip_data_creation=False):
         self.testcases, self.subs = create_subtests_MVTecAD(self.path,

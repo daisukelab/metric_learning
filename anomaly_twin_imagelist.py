@@ -1,8 +1,16 @@
 from dlcliche.fastai import *
 import PIL
 from PIL import ImageDraw
+from PIL import ImageFilter
+
 
 class AnomalyTwinImageList(ImageList):
+    """ImageList that doubles 'true' label images as 'false' twin.
+    Artificially generated twin will have a small scar on the image
+    to simulate that a defect happened to be there on the image.
+
+    Feed 'true' labeled images only.
+    """
     SIZE = 224
     W = 16
     def __init__(self, items, **kwargs):
@@ -64,3 +72,67 @@ class AnomalyTwinImageList(ImageList):
                 .label_from_df()
                 .transform(tfms=tfms, size=size)
                 .databunch(no_check=True))
+
+
+class DefectOnBlobImageList(AnomalyTwinImageList):
+    """Derived from AnomalyTwinImageList class,
+    this will draw a scar line on the object blob.
+
+    Effective for images with single object like zoom up photo of a single object
+    with single-colored background; Photo of a screw on white background for example.
+
+    Note: Easy algorithm is used to find blob, could catch noises; increase BLOB_TH to avoid that.
+    """
+    BLOB_TH = 20
+    WIDTH_MIN = 1
+    WIDTH_MAX = 14
+    LENGTH_MAX = 30
+    COLOR = True
+
+    @classmethod
+    def set_params(cls, blob_th=20, width_min=1, width_max=14, length=225//5, color=True):
+        cls.BLOB_TH = blob_th
+        cls.WIDTH_MIN, cls.WIDTH_MAX = width_min, width_max
+        cls.LENGTH_MAX, cls.COLOR = length, color
+
+    def random_pick_point(self, xs, ys):
+        # Randomly choose point on object blob
+        x = random.choice(xs)
+        ys_x = ys[np.where(xs == x)[0]]
+        y = random.randint(ys_x.min(), ys_x.max())
+        return x, y
+
+    def anomaly_twin(self, image):
+        """Default anomaly twin maker."""
+        np_img = np.array(image.filter(ImageFilter.SMOOTH)).astype(np.float32)
+        scar_max = self.LENGTH_MAX
+        half = self.SIZE // 2
+        # Randomly choose point on object blob
+        ys, xs = np.where(np.sum(np.abs(np.diff(np_img, axis=0)), axis=2) > self.BLOB_TH)
+        x, y = self.random_pick_point(xs, ys)
+        # Randomly choose other parameters
+        dx, dy = random.randint(0, scar_max), random.randint(0, scar_max)
+        x2, y2 = x + dx if x < half else x - dx, y + dy if y < half else y - dy
+        c = (random.randint(0, 256), random.randint(0, 256), random.randint(0, 256))
+        if not self.COLOR: c = (c[0], c[0], c[0])
+        w = random.randint(self.WIDTH_MIN, self.WIDTH_MAX)
+        ImageDraw.Draw(image).line((x, y, x2,y2), fill=c, width=w)
+        return image
+
+
+class DefectOnTheEdgeImageList(DefectOnBlobImageList):
+    """Derived from DefectOnBlobImageList class, this simulates
+    that object have a defect on the _EDGE_ of it.
+
+    Effective for images with single object like photo of zoom up of a single screw,
+    which could have defects on the edge.
+
+    Note: All the edges could be target, including edges inside the object.
+    """
+
+    def random_pick_point(self, xs, ys):
+        # Randomly choose point on object (where any color change happens)
+        obj_pts = (ys, xs)
+        obj_pts = [(x, y) for y, x in zip(*obj_pts)]
+        x, y = obj_pts[random.randint(0, len(obj_pts) - 1)] if len(obj_pts) > 0 else (half, half)
+        return x, y
