@@ -12,7 +12,16 @@ class AnomalyTwinImageList(ImageList):
     Feed 'true' labeled images only.
     """
     SIZE = 224
-    W = 16
+    WIDTH_MIN = 1
+    WIDTH_MAX = 16
+    LENGTH_MAX = 225 // 5
+    COLOR = True
+
+    @classmethod
+    def set_params(cls, width_min=1, width_max=16, length=225//5, color=True):
+        cls.WIDTH_MIN, cls.WIDTH_MAX = width_min, width_max
+        cls.LENGTH_MAX, cls.COLOR = length, color
+
     def __init__(self, items, **kwargs):
         super().__init__(items, **kwargs)
 
@@ -25,18 +34,25 @@ class AnomalyTwinImageList(ImageList):
             image = self.anomaly_twin(image)
         return Image(pil2tensor(image, np.float32).div_(255))
     
+    def random_pick_point(self, image):
+        # Randomly choose a point from entire image
+        return random.randint(0, self.SIZE), random.randint(0, self.SIZE)
+
     def anomaly_twin(self, image):
         """Default anomaly twin maker."""
-        scar_max = self.SIZE // 5
+        scar_max = self.LENGTH_MAX
         half = self.SIZE // 2
-        w = min(self.W, scar_max + 1)
-        x, y = random.randint(0, self.SIZE), random.randint(0, self.SIZE)
+        # Randomly choose a point on object
+        x, y = self.random_pick_point(image)
+        # Randomly choose other parameters
         dx, dy = random.randint(0, scar_max), random.randint(0, scar_max)
         x2, y2 = x + dx if x < half else x - dx, y + dy if y < half else y - dy
         c = (random.randint(0, 256), random.randint(0, 256), random.randint(0, 256))
+        if not self.COLOR: c = (c[0], c[0], c[0])
+        w = random.randint(self.WIDTH_MIN, self.WIDTH_MAX)
         ImageDraw.Draw(image).line((x, y, x2,y2), fill=c, width=w)
         return image
-    
+
     @classmethod
     def databunch(cls, path, images=None, size=224,
                   tfms=None, valid_pct=0.2, extension='.png', confirm_samples=0):
@@ -84,10 +100,7 @@ class DefectOnBlobImageList(AnomalyTwinImageList):
     Note: Easy algorithm is used to find blob, could catch noises; increase BLOB_TH to avoid that.
     """
     BLOB_TH = 20
-    WIDTH_MIN = 1
     WIDTH_MAX = 14
-    LENGTH_MAX = 30
-    COLOR = True
 
     @classmethod
     def set_params(cls, blob_th=20, width_min=1, width_max=14, length=225//5, color=True):
@@ -95,29 +108,14 @@ class DefectOnBlobImageList(AnomalyTwinImageList):
         cls.WIDTH_MIN, cls.WIDTH_MAX = width_min, width_max
         cls.LENGTH_MAX, cls.COLOR = length, color
 
-    def random_pick_point(self, xs, ys):
-        # Randomly choose point on object blob
+    def random_pick_point(self, image):
+        # Randomly choose a point on object blob
+        np_img = np.array(image.filter(ImageFilter.SMOOTH)).astype(np.float32)
+        ys, xs = np.where(np.sum(np.abs(np.diff(np_img, axis=0)), axis=2) > self.BLOB_TH)
         x = random.choice(xs)
         ys_x = ys[np.where(xs == x)[0]]
         y = random.randint(ys_x.min(), ys_x.max())
         return x, y
-
-    def anomaly_twin(self, image):
-        """Default anomaly twin maker."""
-        np_img = np.array(image.filter(ImageFilter.SMOOTH)).astype(np.float32)
-        scar_max = self.LENGTH_MAX
-        half = self.SIZE // 2
-        # Randomly choose point on object blob
-        ys, xs = np.where(np.sum(np.abs(np.diff(np_img, axis=0)), axis=2) > self.BLOB_TH)
-        x, y = self.random_pick_point(xs, ys)
-        # Randomly choose other parameters
-        dx, dy = random.randint(0, scar_max), random.randint(0, scar_max)
-        x2, y2 = x + dx if x < half else x - dx, y + dy if y < half else y - dy
-        c = (random.randint(0, 256), random.randint(0, 256), random.randint(0, 256))
-        if not self.COLOR: c = (c[0], c[0], c[0])
-        w = random.randint(self.WIDTH_MIN, self.WIDTH_MAX)
-        ImageDraw.Draw(image).line((x, y, x2,y2), fill=c, width=w)
-        return image
 
 
 class DefectOnTheEdgeImageList(DefectOnBlobImageList):
@@ -130,9 +128,12 @@ class DefectOnTheEdgeImageList(DefectOnBlobImageList):
     Note: All the edges could be target, including edges inside the object.
     """
 
-    def random_pick_point(self, xs, ys):
-        # Randomly choose point on object (where any color change happens)
+    def random_pick_point(self, image):
+        # Randomly choose a point on edge (where any color change happens)
+        np_img = np.array(image.filter(ImageFilter.SMOOTH)).astype(np.float32)
+        ys, xs = np.where(np.sum(np.abs(np.diff(np_img, axis=0)), axis=2) > self.BLOB_TH)
         obj_pts = (ys, xs)
         obj_pts = [(x, y) for y, x in zip(*obj_pts)]
-        x, y = obj_pts[random.randint(0, len(obj_pts) - 1)] if len(obj_pts) > 0 else (half, half)
+        x, y = (obj_pts[random.randint(0, len(obj_pts) - 1)]
+                if len(obj_pts) > 0 else (self.SIZE//2, self.SIZE//2))
         return x, y

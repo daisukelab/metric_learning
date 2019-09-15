@@ -31,9 +31,7 @@ def create_subtests_MVTecAD(path, subtest_type, testcases, skip_data_creation=Fa
         print([d.parent.name+'/'+d.name for d in (case_folder/'test').glob('*')])
         print()
 
-    # TEST TYPE 1: Use artificially generated samples (from train samples) as anomaly class.
-    # TEST TYPE 2: Use one of test anomaly class to train with good, test others.
-    if subtest_type == 'artificial' or subtest_type == 'out_of_folds':
+    if subtest_type == 'self_supervised' or subtest_type == 'binary_with_one_defect':
         # Make all test combinations
         subs = []
         for tc in testcases:
@@ -54,10 +52,9 @@ def create_subtests_MVTecAD(path, subtest_type, testcases, skip_data_creation=Fa
                     for test_sub in subs[case_no]:
                         copy_any(path/f'original/{case}/test/{test_sub}', case_folder/'test')
                     _print_content(subcase, case_folder)
-    # TEST TYPE 3: Use some test cases' good class to train.
-    elif subtest_type == 'simple_mix':
+    elif subtest_type == 'multi_normals':
         testcases = ['capsule', 'carpet', 'leather', 'cable']
-        subs = [['simple_mix'], ['simple_mix'], ['simple_mix'], ['simple_mix']]
+        subs = [['multi_normals'], ['multi_normals'], ['multi_normals'], ['multi_normals']]
         for case_no in range(len(testcases)):
             subcase, case_folder = _make_case_folder(case_no=case_no, sub_no=0)
             for case in testcases:
@@ -65,7 +62,6 @@ def create_subtests_MVTecAD(path, subtest_type, testcases, skip_data_creation=Fa
             sub = testcases[case_no]
             copy_any(path/f'original/{sub}/test', case_folder/f'test/{sub}')
             _print_content(subcase, case_folder)
-    # UNKNOWN TYPE
     else:
         raise Exception(f'Unknown test type: {subtest_type}')
 
@@ -85,13 +81,10 @@ def databunch_MVTeczAD(path, subtest_type, testcases, subs, case_no, train_valid
         tfms_trn, tfms_val = get_transforms(do_flip=False)
         tfms = (tfms_trn[:-1].append(crop_pad(padding_mode='zeros')), tfms_val)
 
-    # TEST TYPE 1: Use artificially generated samples (from train samples) as anomaly class.
-    if subtest_type == 'artificial':
+    if subtest_type == 'self_supervised':
         data = artificial_image_list_cls.databunch(path/f'{subcase}/train/good',
                                                    size=img_size, tfms=tfms)
-    # TEST TYPE 2: Use one of test anomaly class to train with good, test others.
-    # TEST TYPE 3: Use some test cases' good class to train.
-    elif subtest_type == 'out_of_folds' or subtest_type == 'simple_mix':
+    elif subtest_type == 'binary_with_one_defect' or subtest_type == 'multi_normals':
         # Create sample list.
         files  = [Path(f) for f in (path/f'{subcase}/train').glob('**/[A-Za-z0-9]*.png')]
         labels = [Path(f).parent.name for f in files]
@@ -102,34 +95,65 @@ def databunch_MVTeczAD(path, subtest_type, testcases, subs, case_no, train_valid
         data = ImageDataBunch.from_lists(path/subcase, balanced_files, balanced_labels,
                                          valid_pct=train_valid_pct,
                                          test='test', ds_tfms=tfms, size=img_size)
-    # UNKNOWN TYPE
     else:
         raise Exception(f'Unknown test type: {subtest_type}')
     return data
 
-from utils import *
-from anomaly_twin_imagelist import *
-from metric_nets import *
+
+def paper_table2_compatible_result(mvtecad_test, reorder=True):
+    """Makes TPR&TNR result table, almost compatible with paper's table 2"""
+    textures = [
+        'carpet', 'grid', 'leather', 'tile', 'wood',
+    ]
+    if reorder:
+        paper_order = textures + [c for c in mvtecad_test.testcases if c not in textures]
+    else:
+        paper_order = mvtecad_test.testcases
+
+    all_tpr_tnr = {}
+    all_tpr_tnr['index'] = [t for tc in paper_order for t in [tc+'-TPR', tc+'-TNR']]
+    for name in mvtecad_test.results:
+        all_tpr_tnr[name] = []
+        # Reorder results to paper_order...
+        results = mvtecad_test.results[name]
+        results = [results[mvtecad_test.testcases.index(t)] for t in paper_order]
+        for i, result in enumerate(results):
+            _, (_, fpr, tpr), _ = result[0]
+            tpr_tnr = np.vstack([tpr, 1-fpr])
+            max_tpr, max_tnr = tpr_tnr[:, np.argmax(np.sum(tpr_tnr, axis=0))]
+            all_tpr_tnr[name].extend([max_tpr, max_tnr])
+    paper_compatible = pd.DataFrame(all_tpr_tnr).set_index('index')
+
+    return paper_compatible
 
 
 class MVTecADTest:
     "Anomaly detection test class using MVTec AD dataset"
 
-    def __init__(self, path, test_type='artificial', distance='cosine', n_mosts=5,
+    def __init__(self, path, test_type='self_supervised', distance='cosine', n_mosts=5,
                  train_valid_pct=0.2, test_size=1.0, img_size=224, pred_fn=np.min, skip_data_creation=False,
                  artificial_image_list_cls=AnomalyTwinImageList,
                  testcases=None):
         """
         Args:
             base_databunch: Databunch fast.ai class object that holds whole dataset.
-            path
-            test_type
-            distance: 'cosine' or 'euclidean'
+            path: Path to the copy of MVTecAD dataset.
+            test_type:
+                - 'self_supervised': Self-supervised training by default.
+                - 'binary_with_one_defect': Binary classification training.
+                - 'multi_normals': Multi class classification training.
+            distance: 'cosine' or 'euclidean'.
             n_mosts: Number of samples to show worst cases.
             subsample_size: (0, 1) or 1 or integer to set size of subsampling train/valid sets.
-            train_valid_pct
+            train_valid_pct: Validation sample percentage to assign from training set.
             test_size: (0, 1) or 1 or integer to set size of subsampling test set.
             pred_fn: Function to predict distance; np.min() by default.
+            skip_data_creation: True to skip creating data folders/files.
+            artificial_image_list_cls:
+                - `AnomalyTwinImageList` by default.
+                - `DefectOnBlobImageList` for placing defect on object blob.
+                - `DefectOnTheEdgeImageList` for placing defect on edge.
+            testcases: List of testcases (scenarios) to test, or None to test all.
         """
         self.path, given_testcases = prepare_MVTecAD(path)
         self.testcases = given_testcases if testcases is None else testcases
@@ -171,10 +195,10 @@ class MVTecADTest:
         if self.no_test_set_yet(): return '(no test)'
         # TEST TYPE 1: Use artificially generated samples (from train samples) as anomaly class.
         # TEST TYPE 2: Use one of test anomaly class to train with good, test others.
-        if self.test_type == 'artificial' or self.test_type == 'out_of_folds':
+        if self.test_type == 'self_supervised' or self.test_type == 'binary_with_one_defect':
             return self.testcases[self.cur_test[0]]
         # TEST TYPE 3: Use some test cases' good class to train.
-        elif self.test_type == 'simple_mix':
+        elif self.test_type == 'multi_normals':
             return self.subs[0][self.cur_test[1]]
         else:
             raise Exception(f'Unknown test type: {self.test_type}')
@@ -326,7 +350,7 @@ class MVTecADTest:
         if auc_range is not None: ax.set_ylim(*auc_range)
         plt.show()
 
-        display(df_apply_sns_color_map(aucs, reverse=True))
+        display(df_apply_sns_color_map(aucs, color='gray', reverse=True))
         plt.show()
 
         print('# Stat: Normalized distances')
