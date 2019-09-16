@@ -265,12 +265,13 @@ class MVTecADTest:
         result = distance_df, (auc, fpr, tpr), worst_test_info
         case_no, sub_no = self.cur_test
         self.store_results(name, result, case_no, sub_no)
-        
+        print(f'AUC = {auc}')        
+
         # Visualize
         if visualize_now:
             # Results
             display(distance_df)
-            print(f'AUC = {auc}')
+
             # Embeddings
             visualize_embeddings(title='Class embeddings distribution', embeddings=test_embs,
                                  ys=test_y, classes=eval_test_ds.y.classes)
