@@ -36,6 +36,7 @@ def get_embeddings(embedding_model, data_loader, label_catcher=None, return_y=Fa
         label_catcher: LearnerCallback for keeping last batch labels.
         return_y: Also returns labels, for working with training set.
     """
+    embedding_model.eval()
     embs, ys = [], []
     for X, y in data_loader:
         # For each batch (X, y),

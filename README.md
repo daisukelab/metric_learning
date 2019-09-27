@@ -20,13 +20,11 @@ Then just running each notebook will show you the results.
 
 ### 1.1 Install dependent modules first
 
-- Install dl-cliche from github. It is not directly available from pip, install as follows. [dl-cliche](https://github.com/daisukelab/dl-cliche) is a general purpose utility module.
+- Install dl-cliche from github. [dl-cliche](https://github.com/daisukelab/dl-cliche) is a general purpose utility module.
 
 ```shell
-pip install git+https://github.com/daisukelab/dl-cliche.git@master --upgrade
+pip install dl-cliche
 ```
-
-NOTE: You might be asked to install some other modules which dl-cliche depends on.
 
 - Install [fast.ai](https://www.fast.ai/) and other dependent modules.
 
@@ -54,6 +52,10 @@ wget https://raw.githubusercontent.com/KaiyangZhou/pytorch-center-loss/master/ce
 - MVTec AD - (Japanese) [Qiita: 欠陥発見! MVTec異常検知データセットへの深層距離学習(Deep Metric Learning)応用](https://qiita.com/daisukelab/items/e0ff429bd58b2befbb1b)
 - CIFAR-10/MNIST - (Japanese) [Qiita: 深層距離学習(Deep Metric Learning)各手法の定量評価 (MNIST/CIFAR10・異常検知)](https://qiita.com/daisukelab/items/5f9ec189959eaf1ef211)
 
-## 4. References
+## 4. Acknowledgements & references
+
+Many thanks to the people who worked for MVTec AD dataset, it would greatly help future researches.
+And many thanks to fast.ai library[2] for minimizing time to develop experiments.
 
 - [1] Paul Bergmann, Michael Fauser, David Sattlegger, Carsten Steger. MVTec AD - A Comprehensive Real-World Dataset for Unsupervised Anomaly Detection; in: IEEE Conference on Computer Vision and Pattern Recognition (CVPR), June 2019. https://www.mvtec.com/fileadmin/Redaktion/mvtec.com/company/research/mvtec_ad.pdf
+- [2] Jeremy Howard et al. (2018). The fast.ai deep learning library, https://github.com/fastai/fastai.
