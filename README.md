@@ -1,4 +1,4 @@
-# Metric Learning Application System Development Resource
+# Metric Learning Application Development Resource
 
 This repository is a work in progress, currently focusing on __Deep Mmetric Learning__ and contains notebooks for:
 
@@ -20,7 +20,7 @@ Then just running each notebook will show you the results.
 
 ### 1.1 Install dependent modules first
 
-- Install dl-cliche from github. [dl-cliche](https://github.com/daisukelab/dl-cliche) is a general purpose utility module.
+- Install dl-cliche. [dl-cliche](https://github.com/daisukelab/dl-cliche) is a general purpose utility module, my repo is always depending on it...
 
 ```shell
 pip install dl-cliche
