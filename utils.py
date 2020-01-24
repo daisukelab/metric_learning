@@ -49,7 +49,7 @@ def get_embeddings(embedding_model, data_loader, label_catcher=None, return_y=Fa
             out = embedding_model(X).cpu().detach().numpy()
             out = out.reshape((len(out), -1))
             embs.append(out)
-        ys.append(y)
+        ys.append(y.cpu())
     # Putting all embeddings in shape (number of samples, length of one sample embeddings)
     embs = np.concatenate(embs) # Maybe in (10000, 10)
     ys   = np.concatenate(ys)
