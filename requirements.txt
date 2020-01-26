@@ -1,0 +1,10 @@
+torch==0.4.1
+torchvision==0.2.1
+matplotlib==3.1.1
+numpy==1.17.4
+tqdm==4.29.1
+fastai==1.0.60
+metrics==0.3.3
+Pillow==7.0.0
+scikit_learn==0.22.1
+dl-cliche==0.1.2
