@@ -17,7 +17,15 @@ def delete_saved_models(data_path):
     subprocess.Popen(['find', str(Path(data_path).absolute()), '-name', '*.pth', '-delete'])
 
 
-def body_feature_model(model):
+class Normalize(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input):
+        return F.normalize(input)
+
+
+def body_feature_model(model, normalize=False):
     """
     Returns a model that output flattened features directly from CNN body.
     """
@@ -25,7 +33,7 @@ def body_feature_model(model):
         body, head = list(model.org_model.children()) # For XXNet defined in this notebook
     except:
         body, head = list(model.children()) # For original pytorch model
-    return nn.Sequential(body, head[:-1])
+    return nn.Sequential(body, nn.Sequential(head[:-1], Normalize()) if normalize else head[:-1])
 
 
 def get_embeddings(embedding_model, data_loader, label_catcher=None, return_y=False):
@@ -62,11 +70,11 @@ def visualize_embeddings(title, embeddings, ys, classes):
     return show_2D_tSNE(many_dim_vector=embeddings, target=[int(y) for y in ys], title=title, labels=classes)
 
 
-def visualize_learner_embeddings(learn, title, all_data, size=0.5):
+def visualize_learner_embeddings(learn, title, all_data, size=0.5, normalize=True):
     valid_ds, valid_dl = prepare_subset_ds_dl(all_data.path/'valid', size=size, tfms=None)
-    embs = get_embeddings(body_feature_model(learn.model), valid_dl)
+    embs = get_embeddings(body_feature_model(learn.model, normalize=normalize), valid_dl)
     return visualize_embeddings(title=title, embeddings=embs, ys=[int(y) for y in valid_ds.y],
-                                labels=valid_ds.y.classes)
+                                classes=valid_ds.y.classes)
 
 
 def barplot_paired_charts(df_a, df_b, name_a, name_b, figsize=(14, 10), rot=30):
