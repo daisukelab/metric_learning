@@ -20,20 +20,13 @@ Then just running each notebook will show you the results.
 
 ### 1.1 Install dependent modules first
 
-- Install dl-cliche. [dl-cliche](https://github.com/daisukelab/dl-cliche) is a general purpose utility module, my repo is always depending on it...
+- Install dl-cliche. [dl-cliche](https://github.com/daisukelab/dl-cliche) is a general purpose utility module, my repo is always depending on it. Install [fast.ai](https://www.fast.ai/) and other dependent modules using requirements.txt
 
 ```shell
-pip install dl-cliche
+pip install -r requirements.txt
 ```
 
-- Install [fast.ai](https://www.fast.ai/) and other dependent modules.
-
-```shell
-pip install fastai
- :
-```
-
-1.2 Download external source codes
+### 1.2 Download external source codes
 
 ```shell
 wget https://raw.githubusercontent.com/ronghuaiyang/arcface-pytorch/master/models/metrics.py
